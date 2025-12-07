@@ -1,7 +1,7 @@
 """
 OCR (Optical Character Recognition) 모듈
 
-EasyOCR을 사용하여:
+PaddleOCR을 사용하여:
 1. 이미지에서 텍스트 추출
 2. 텍스트의 위치(좌표) 정보 함께 반환
 3. 한글 및 영어 동시 지원
@@ -11,7 +11,7 @@ import os
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 
-import easyocr
+from paddleocr import PaddleOCR
 import numpy as np
 import cv2
 
@@ -21,35 +21,61 @@ class OCRProcessor:
     OCR 처리를 위한 클래스
 
     주요 기능:
-    - EasyOCR을 사용한 텍스트 추출
+    - PaddleOCR을 사용한 텍스트 추출
     - 텍스트의 바운딩 박스 좌표 반환
     - 한글/영어 동시 지원
     """
 
     def __init__(
         self,
-        languages: List[str] = ['ko', 'en'],
-        gpu: bool = False
+        languages: List[str] = ['en'],
+        gpu: bool = True
     ):
         """
         OCRProcessor 초기화
 
         Args:
             languages: 인식할 언어 리스트
-                - 'ko': 한글
+                - 'ko' 또는 'korean': 한글
                 - 'en': 영어
                 - ['ko', 'en']: 한글+영어 동시 지원
             gpu: GPU 사용 여부
-                - macOS에서는 False 권장 (MPS 직접 지원 안 됨)
 
         설명:
-            - EasyOCR은 딥러닝 기반 OCR 라이브러리
-            - 첫 실행 시 언어별 모델을 자동 다운로드 (~100MB)
-            - 한글 인식이 필요하므로 'ko' 포함 필수
+            - PaddleOCR은 딥러닝 기반 OCR 라이브러리
+            - 첫 실행 시 언어별 모델을 자동 다운로드
+            - 한글 인식이 필요하므로 'korean' 사용
         """
-        print(f"OCR 모델 초기화 중 (언어: {', '.join(languages)})")
-        self.reader = easyocr.Reader(languages, gpu=gpu)
+        # PaddleOCR 언어 코드 변환 (ko -> korean)
+        lang = self._convert_language_code(languages)
+        
+        print(f"OCR 모델 초기화 중 (언어: {lang})")
+        self.reader = PaddleOCR(
+            use_angle_cls=True,  # 텍스트 방향 감지
+            lang=lang,
+            use_gpu=gpu,
+            show_log=False  # 로그 출력 비활성화
+        )
         print("✓ OCR 모델 준비 완료")
+    
+    def _convert_language_code(self, languages: List[str]) -> str:
+        """
+        EasyOCR 언어 코드를 PaddleOCR 언어 코드로 변환
+        
+        PaddleOCR 지원 언어:
+        - 'korean': 한글
+        - 'en': 영어
+        - 'ch': 중국어
+        - 'japan': 일본어
+        """
+        # 한글이 포함되어 있으면 korean 사용
+        if 'ko' in languages or 'korean' in languages:
+            return 'korean'
+        # 영어만 있으면 en 사용
+        if 'en' in languages:
+            return 'en'
+        # 기본값
+        return 'en'
 
     def extract_text(
         self,
@@ -61,8 +87,8 @@ class OCRProcessor:
 
         Args:
             image_path: 입력 이미지 경로
-            detail: 상세 수준
-                - 0: 텍스트만 반환
+            detail: 상세 수준 (PaddleOCR에서는 항상 상세 정보 반환)
+                - 0: 텍스트만 반환 (호환성 유지)
                 - 1: 텍스트 + 좌표 + 신뢰도 반환
 
         Returns:
@@ -77,39 +103,45 @@ class OCRProcessor:
                 }
 
         설명:
-            - reader.readtext(): EasyOCR의 핵심 메서드
-            - 반환값: [(좌표, 텍스트, 신뢰도), ...]
-            - 좌표는 4개 점의 리스트 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-              (직사각형이 아닐 수 있어서 4개 점 사용)
+            - reader.ocr(): PaddleOCR의 핵심 메서드
+            - 반환값: [[[box], (text, confidence)], ...]
+            - box는 4개 점의 리스트 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
         """
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"이미지를 찾을 수 없습니다: {image_path}")
 
         print(f"OCR 처리 중: {Path(image_path).name}")
-        results = self.reader.readtext(image_path, detail=detail)
+        results = self.reader.ocr(image_path, cls=True)
 
         # 결과를 구조화된 형태로 변환
         text_data = []
-        for (bbox, text, confidence) in results:
-            # bbox는 4개 꼭짓점 좌표 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-            bbox_array = np.array(bbox)
+        
+        # PaddleOCR 결과 형식: [[[box], (text, confidence)], ...]
+        # results[0]이 실제 결과 리스트
+        if results and results[0]:
+            for line in results[0]:
+                bbox = line[0]  # 4개 꼭짓점 좌표
+                text = line[1][0]  # 텍스트
+                confidence = line[1][1]  # 신뢰도
+                
+                bbox_array = np.array(bbox)
 
-            # 중심 좌표 계산 (행/열 정렬에 사용)
-            center_x = float(bbox_array[:, 0].mean())
-            center_y = float(bbox_array[:, 1].mean())
+                # 중심 좌표 계산 (행/열 정렬에 사용)
+                center_x = float(bbox_array[:, 0].mean())
+                center_y = float(bbox_array[:, 1].mean())
 
-            # 좌상단 좌표 (정렬 보조용)
-            top_left_x = float(bbox_array[:, 0].min())
-            top_left_y = float(bbox_array[:, 1].min())
+                # 좌상단 좌표 (정렬 보조용)
+                top_left_x = float(bbox_array[:, 0].min())
+                top_left_y = float(bbox_array[:, 1].min())
 
-            text_info = {
-                "text": text,
-                "confidence": float(confidence),
-                "bbox": bbox_array.tolist(),
-                "center": [center_x, center_y],
-                "top_left": [top_left_x, top_left_y],
-            }
-            text_data.append(text_info)
+                text_info = {
+                    "text": text,
+                    "confidence": float(confidence),
+                    "bbox": bbox_array.tolist(),
+                    "center": [center_x, center_y],
+                    "top_left": [top_left_x, top_left_y],
+                }
+                text_data.append(text_info)
 
         print(f"✓ {len(text_data)}개 텍스트 추출됨")
         return text_data
@@ -142,32 +174,38 @@ class OCRProcessor:
         x1, y1, x2, y2 = map(int, bbox)
         cropped = image[y1:y2, x1:x2]
 
-        # 임시 파일로 저장 (EasyOCR은 파일 경로나 numpy 배열 입력 가능)
-        # numpy 배열 직접 입력 시 메모리 효율적
-        results = self.reader.readtext(cropped, detail=1)
+        # PaddleOCR은 numpy 배열 직접 입력 가능
+        results = self.reader.ocr(cropped, cls=True)
 
         # 좌표를 원본 이미지 기준으로 변환
         text_data = []
-        for (bbox_rel, text, confidence) in results:
-            # 상대 좌표를 절대 좌표로 변환
-            bbox_array = np.array(bbox_rel)
-            bbox_array[:, 0] += x1  # x 좌표 오프셋
-            bbox_array[:, 1] += y1  # y 좌표 오프셋
+        
+        # PaddleOCR 결과 형식: [[[box], (text, confidence)], ...]
+        if results and results[0]:
+            for line in results[0]:
+                bbox_rel = line[0]  # 4개 꼭짓점 좌표 (크롭된 이미지 기준)
+                text = line[1][0]  # 텍스트
+                confidence = line[1][1]  # 신뢰도
+                
+                # 상대 좌표를 절대 좌표로 변환
+                bbox_array = np.array(bbox_rel)
+                bbox_array[:, 0] += x1  # x 좌표 오프셋
+                bbox_array[:, 1] += y1  # y 좌표 오프셋
 
-            center_x = float(bbox_array[:, 0].mean())
-            center_y = float(bbox_array[:, 1].mean())
+                center_x = float(bbox_array[:, 0].mean())
+                center_y = float(bbox_array[:, 1].mean())
 
-            top_left_x = float(bbox_array[:, 0].min())
-            top_left_y = float(bbox_array[:, 1].min())
+                top_left_x = float(bbox_array[:, 0].min())
+                top_left_y = float(bbox_array[:, 1].min())
 
-            text_info = {
-                "text": text,
-                "confidence": float(confidence),
-                "bbox": bbox_array.tolist(),
-                "center": [center_x, center_y],
-                "top_left": [top_left_x, top_left_y],
-            }
-            text_data.append(text_info)
+                text_info = {
+                    "text": text,
+                    "confidence": float(confidence),
+                    "bbox": bbox_array.tolist(),
+                    "center": [center_x, center_y],
+                    "top_left": [top_left_x, top_left_y],
+                }
+                text_data.append(text_info)
 
         return text_data
 

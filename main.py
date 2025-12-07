@@ -33,8 +33,9 @@ def process_single_image(
     structure_recognizer: TableStructureRecognizer,
     ocr_processor: OCRProcessor,
     output_dir: str,
-    use_structure_recognition: bool = True
-) -> List[Dict]:
+    use_structure_recognition: bool = True,
+    save_cropped_tables: bool = True
+) -> tuple[List[Dict], str]:
     """
     단일 이미지를 처리하여 표를 추출합니다.
 
@@ -43,11 +44,12 @@ def process_single_image(
         detector: YOLO 감지기
         structure_recognizer: Table Transformer 구조 인식기
         ocr_processor: OCR 처리기
-        output_dir: 출력 디렉토리
+        output_dir: 출력 디렉토리 (기본 output 디렉토리)
         use_structure_recognition: Table Transformer 사용 여부
+        save_cropped_tables: 크롭된 표 이미지 저장 여부
 
     Returns:
-        List[Dict]: 추출된 표 리스트
+        tuple[List[Dict], str]: (추출된 표 리스트, 페이지 출력 디렉토리)
 
     처리 단계:
         1. YOLO로 표 영역 감지
@@ -55,9 +57,16 @@ def process_single_image(
         3. OCR로 텍스트 추출
         4. 텍스트를 셀 그리드에 매핑
         5. 구조화된 표 데이터 생성
+        6. 크롭된 표 이미지 저장
     """
+    # 이미지 경로에서 PDF 이름과 페이지 번호 추출
+    # 예: data/images/spec_001/page_001.png -> spec_001, page_001
+    image_path_obj = Path(image_path)
+    page_name = image_path_obj.stem  # page_001
+    pdf_name = image_path_obj.parent.name  # spec_001
+
     print(f"\n{'='*60}")
-    print(f"처리 중: {Path(image_path).name}")
+    print(f"처리 중: {pdf_name}/{page_name}")
     print(f"{'='*60}")
 
     # 1. 표 영역 감지
@@ -65,10 +74,14 @@ def process_single_image(
     detections = detector.detect_tables(image_path)
 
     if not detections:
-        print("⚠ 표가 감지되지 않았습니다.")
-        return []
+        print("⚠ 표가 감지되지 않았습니다. 폴더를 생성하지 않습니다.")
+        return [], None
 
     print(f"✓ {len(detections)}개 표 감지됨")
+
+    # 표가 감지되었으므로 폴더 생성
+    page_output_dir = Path(output_dir) / page_name
+    page_output_dir.mkdir(parents=True, exist_ok=True)
 
     # 원본 이미지 로드
     original_image = cv2.imread(image_path)
@@ -86,15 +99,16 @@ def process_single_image(
         x1, y1, x2, y2 = map(int, bbox)
         table_image = original_image[y1:y2, x1:x2]
 
-        # 임시 파일로 저장 (Table Transformer 입력용)
-        temp_table_path = Path(output_dir) / f"temp_table_{idx}.png"
-        temp_table_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(temp_table_path), table_image)
+        # 크롭된 표 이미지 저장
+        table_image_filename = f"table_{idx + 1:02d}.png"
+        table_image_path = page_output_dir / table_image_filename
+        cv2.imwrite(str(table_image_path), table_image)
+        print(f"  ✓ 표 이미지 저장: {table_image_filename}")
 
         if use_structure_recognition:
             # 2. Table Transformer로 표 구조 인식
             print("\n[2/5] Table Transformer 구조 인식 중...")
-            structure = structure_recognizer.recognize_structure(str(temp_table_path))
+            structure = structure_recognizer.recognize_structure(str(table_image_path))
 
             # 3. 셀 그리드 생성
             print("\n[3/5] 셀 그리드 생성 중...")
@@ -102,12 +116,10 @@ def process_single_image(
 
             # 4. OCR 텍스트 추출
             print("\n[4/5] OCR 텍스트 추출 중...")
-            ocr_results = ocr_processor.extract_text(str(temp_table_path))
+            ocr_results = ocr_processor.extract_text(str(table_image_path))
 
             if not ocr_results:
                 print("  ⚠ 텍스트가 추출되지 않았습니다.")
-                # 임시 파일 삭제
-                temp_table_path.unlink()
                 continue
 
             # OCR 결과를 셀 그리드에 맞게 변환
@@ -182,6 +194,8 @@ def process_single_image(
 
         # 검증
         if validate_table_structure(table_structure):
+            # 표 이미지 파일 경로 추가
+            table_structure["image_path"] = str(table_image_path.relative_to(Path(output_dir)))
             tables.append(table_structure)
             print(f"\n✓ 표 {idx + 1} 파싱 완료: "
                   f"{table_structure['content']['rows']}행 x "
@@ -192,11 +206,7 @@ def process_single_image(
         else:
             print(f"  ⚠ 표 {idx + 1} 검증 실패, 건너뜀")
 
-        # 임시 파일 삭제
-        if temp_table_path.exists():
-            temp_table_path.unlink()
-
-    return tables
+    return tables, str(page_output_dir)
 
 
 def main():
@@ -245,7 +255,7 @@ def main():
     parser.add_argument(
         "--lang",
         type=str,
-        default="ko,en",
+        default="en",
         help="OCR 언어 (기본값: ko,en)"
     )
 
@@ -303,7 +313,9 @@ def main():
 
     # 3. OCR 처리기
     languages = args.lang.split(',')
-    ocr_processor = OCRProcessor(languages=languages, gpu=False)
+    use_gpu = device != 'cpu'
+    # MPS의 경우 EasyOCR 이슈가 있을 수 있으나, 사용자 요청에 따라 활성화 시도
+    ocr_processor = OCRProcessor(languages=languages, gpu=use_gpu)
 
     # 4. 문서 파서
     doc_parser = DocumentParser()
@@ -323,7 +335,7 @@ def main():
 
         # 배치 처리
         for image_file in sorted(image_files):
-            tables = process_single_image(
+            tables, page_dir = process_single_image(
                 str(image_file),
                 detector,
                 structure_recognizer,
@@ -332,20 +344,23 @@ def main():
                 use_structure_recognition=not args.no_structure
             )
 
-            # JSON 저장
+            # JSON 저장 (페이지별 디렉토리에 저장)
             if tables:
-                document_id = image_file.stem
+                # 페이지 이름으로 document ID 생성
+                page_name = image_file.stem
                 document = doc_parser.create_document_structure(
-                    document_id,
+                    page_name,
                     tables
                 )
 
-                json_path = output_dir / f"{document_id}.json"
+                # JSON을 페이지 디렉토리에 저장
+                json_path = Path(page_dir) / f"{page_name}.json"
                 doc_parser.save_to_json(document, str(json_path))
+                print(f"  ✓ JSON 저장: {json_path.relative_to(output_dir)}")
 
     # 입력이 단일 파일인 경우
     else:
-        tables = process_single_image(
+        tables, page_dir = process_single_image(
             str(input_path),
             detector,
             structure_recognizer,
@@ -354,16 +369,18 @@ def main():
             use_structure_recognition=not args.no_structure
         )
 
-        # JSON 저장
+        # JSON 저장 (페이지별 디렉토리에 저장)
         if tables:
-            document_id = input_path.stem
+            page_name = input_path.stem
             document = doc_parser.create_document_structure(
-                document_id,
+                page_name,
                 tables
             )
 
-            json_path = output_dir / f"{document_id}.json"
+            # JSON을 페이지 디렉토리에 저장
+            json_path = Path(page_dir) / f"{page_name}.json"
             doc_parser.save_to_json(document, str(json_path))
+            print(f"  ✓ JSON 저장: {json_path.relative_to(output_dir)}")
 
     print("\n" + "="*60)
     print("✓ 처리 완료!")
