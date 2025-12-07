@@ -113,8 +113,9 @@ def process_single_image(
             # OCR 결과를 셀 그리드에 맞게 변환
             ocr_data = []
             for result in ocr_results:
-                text = result[1]
-                bbox_ocr = result[0]
+                # extract_text()는 딕셔너리 리스트를 반환
+                text = result["text"]
+                bbox_ocr = result["bbox"]
 
                 # bbox 형식 변환: [[x1,y1], [x2,y1], [x2,y2], [x1,y2]] -> [x1, y1, x2, y2]
                 x_coords = [point[0] for point in bbox_ocr]
@@ -124,7 +125,7 @@ def process_single_image(
                 ocr_data.append({
                     "text": text,
                     "bbox": ocr_bbox,
-                    "confidence": result[2]
+                    "confidence": result["confidence"]
                 })
 
             # 5. 텍스트를 셀에 매핑
@@ -310,14 +311,15 @@ def main():
     # 입력이 디렉토리인 경우
     if input_path.is_dir():
         image_files = []
+        # 재귀적으로 모든 하위 디렉토리에서 이미지 파일 찾기
         for ext in ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']:
-            image_files.extend(input_path.glob(f"*{ext}"))
+            image_files.extend(input_path.rglob(f"*{ext}"))
 
         if not image_files:
             print(f"⚠ {input_path}에 이미지 파일이 없습니다.")
             return
 
-        print(f"\n{len(image_files)}개 이미지 파일 발견")
+        print(f"\n{len(image_files)}개 이미지 파일 발견 (하위 폴더 포함)")
 
         # 배치 처리
         for image_file in sorted(image_files):

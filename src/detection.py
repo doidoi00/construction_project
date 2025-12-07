@@ -63,6 +63,10 @@ class LayoutDetector:
         self.model.to(self.device)
         print(f"✓ 모델이 {self.device}에 로드되었습니다")
 
+        # 모델 클래스 정보 출력 (디버깅)
+        if hasattr(self.model, 'names'):
+            print(f"✓ 모델 클래스: {list(self.model.names.values())}")
+
     def detect(
         self,
         image_path: str,
@@ -155,10 +159,29 @@ class LayoutDetector:
             List[Dict]: 감지된 표 리스트
 
         설명:
-            - detect() 메서드를 호출하되 target_classes=["table"]로 필터링
-            - 표 감지에 특화된 편의 메서드
+            - detect() 메서드를 호출하되 target_classes=["Table"]로 필터링
+            - DocLayNet은 대문자 "Table" 클래스 사용
         """
-        return self.detect(image_path, target_classes=["table"])
+        # DocLayNet 모델은 "Table" (대문자) 클래스를 사용
+        # 소문자/대문자 모두 지원하도록 수정
+        all_detections = self.detect(image_path, target_classes=None)
+
+        # 모든 감지된 클래스 출력 (디버깅)
+        detected_classes = set([d["class"] for d in all_detections])
+        if detected_classes:
+            print(f"  감지된 클래스: {detected_classes}")
+
+        # "Table" 또는 "table" 클래스만 필터링
+        table_detections = [
+            d for d in all_detections
+            if d["class"].lower() == "table"
+        ]
+
+        if not table_detections and all_detections:
+            print(f"  ⚠️  표가 감지되지 않았습니다. 다른 클래스가 감지되었는지 확인하세요.")
+            print(f"  💡 신뢰도 임계값을 낮춰보세요: --conf 0.3")
+
+        return table_detections
 
     def batch_detect(
         self,
