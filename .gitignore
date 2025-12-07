@@ -82,11 +82,5 @@ notebooks/
 # VSCode settings
 .vscode/
 
-# Data directories (large files)
-data/doclaynet/
-data/construction/
-data/raw/
-!data/raw/.gitkeep
-
 # Quick test files
 quick_test.py
