@@ -34,9 +34,7 @@ env/
 *~
 
 # Project specific
-data/raw/pdf/*.pdf
-data/images/
-data/output/
+
 
 # YOLO
 runs/
