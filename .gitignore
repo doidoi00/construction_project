@@ -90,14 +90,6 @@ notebooks/
 # VSCode settings
 .vscode/
 
-# Model weights (large files)
-models/finetuned/
-models/pretrained/
-models/final/
-!models/finetuned/.gitkeep
-!models/pretrained/.gitkeep
-!models/final/.gitkeep
-
 # Data directories (large files)
 data/doclaynet/
 data/construction/
