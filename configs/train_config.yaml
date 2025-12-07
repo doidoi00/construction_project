@@ -1,0 +1,64 @@
+# YOLO11 DocLayNet 파인튜닝 설정
+# macOS Apple Silicon (MPS) 최적화 설정
+
+# 모델 설정
+model: models/pretrained/yolo11n.pt  # Nano 모델 (가장 작고 빠름)
+# 다른 옵션: yolo11s.pt (Small), yolo11m.pt (Medium), yolo11l.pt (Large)
+
+# 데이터셋
+data: data/doclaynet/yolo/doclaynet.yaml
+
+# 학습 하이퍼파라미터
+epochs: 100                # 학습 에폭 수
+batch: 2                   # 배치 크기 (MPS 16GB 기준 최적값, 메모리 부족 시 4로 낮추기)
+imgsz: 640                 # 입력 이미지 크기 (640: 속도 최적화, 1024 대비 2.5배 빠름)
+
+# 최적화 설정
+optimizer: auto            # 옵티마이저 (auto, SGD, Adam, AdamW)
+lr0: 0.01                  # 초기 학습률
+lrf: 0.01                  # 최종 학습률 (lr0 * lrf)
+momentum: 0.937            # SGD momentum
+weight_decay: 0.0005       # 가중치 감쇠
+
+# 데이터 증강
+hsv_h: 0.015               # 색조 증강
+hsv_s: 0.7                 # 채도 증강
+hsv_v: 0.4                 # 명도 증강
+degrees: 0.0               # 회전 각도 (문서는 회전 안함)
+translate: 0.1             # 이동
+scale: 0.5                 # 스케일
+shear: 0.0                 # 전단 변환 (문서는 사용 안함)
+perspective: 0.0           # 원근 변환 (문서는 사용 안함)
+flipud: 0.0                # 상하 반전 안함 (문서 특성상)
+fliplr: 0.0                # 좌우 반전 안함 (문서 특성상)
+mosaic: 1.0                # Mosaic 증강
+mixup: 0.0                 # Mixup 증강
+
+# 하드웨어 설정
+device: mps                # Apple Silicon GPU (mps)
+# device: cpu              # CPU 사용 시
+workers: 2                 # 데이터 로더 워커 수 (CPU 코어 수에 맞게 증가)
+
+# MPS 특화 설정
+amp: false                 # ⚠️ 중요: MPS는 FP16 자동 혼합 정밀도 미지원
+
+# 학습 제어
+patience: 20               # Early stopping patience (20 에폭 동안 개선 없으면 중단)
+save: true                 # 체크포인트 저장
+save_period: 10            # 체크포인트 저장 주기 (10 에폭마다)
+exist_ok: true             # 기존 결과 덮어쓰기 허용
+
+# 검증 설정
+val: true                  # 에폭마다 검증 수행
+plots: true                # 학습 그래프 생성
+verbose: true              # 상세 로그 출력
+
+# 출력 설정
+project: models/finetuned  # 결과 저장 경로
+name: doclaynet_yolo11n    # 실험 이름
+
+# 추가 설정
+cache: ram                 # 이미지 캐싱 (ram: 메모리에 캐싱하여 속도 향상, disk: 디스크 캐싱)
+rect: false                # 직사각형 학습 (문서는 false 권장)
+resume: false              # 학습 재개 (중단된 학습 이어하기)
+close_mosaic: 10           # 마지막 N 에폭에서 mosaic 비활성화
