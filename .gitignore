@@ -37,15 +37,9 @@ env/
 data/raw/pdf/*.pdf
 data/images/
 data/output/
-models/yolo_weights/*.pt
-models/custom_weights/*.pt
-!models/yolo_weights/.gitkeep
-!models/custom_weights/.gitkeep
 
 # YOLO
 runs/
-yolo_weights/
-*.pt
 *.onnx
 *.torchscript
 
