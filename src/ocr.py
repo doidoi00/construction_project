@@ -52,9 +52,9 @@ class OCRProcessor:
         
         # PaddleOCR 3.x 초기화
         self.reader = PaddleOCR(
-            use_doc_orientation_classify=False,  # 문서 방향 분류 비활성화 (속도 향상)
+            use_doc_orientation_classify=True,  # 문서 방향 분류 비활성화 (속도 향상)
             use_doc_unwarping=False,  # 문서 왜곡 보정 비활성화 (속도 향상)
-            use_textline_orientation=False,  # 텍스트 라인 방향 분류 비활성화
+            use_textline_orientation=True,  # 텍스트 라인 방향 분류 비활성화
             lang=lang,
             device='gpu' if gpu else 'cpu'
         )

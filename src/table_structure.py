@@ -136,7 +136,7 @@ class TableStructureRecognizer:
         # 추론 실행
         with torch.no_grad():  # 그래디언트 계산 비활성화 (메모리 절약)
             outputs = self.model(**inputs)
-
+            
         # 결과 후처리
         # post_process_object_detection: 바운딩 박스 디코딩 및 NMS 적용
         # target_sizes: 원본 이미지 크기로 좌표 변환
