@@ -56,8 +56,7 @@ class OCRProcessor:
             use_doc_unwarping=False,  # 문서 왜곡 보정 비활성화 (속도 향상)
             use_textline_orientation=False,  # 텍스트 라인 방향 분류 비활성화
             lang=lang,
-            device='gpu' if gpu else 'cpu',
-            show_log=False  # 로그 출력 비활성화
+            device='gpu' if gpu else 'cpu'
         )
         print("✓ OCR 모델 준비 완료")
     

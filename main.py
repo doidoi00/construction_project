@@ -9,6 +9,10 @@
 5. 텍스트를 셀 그리드에 매핑
 6. 구조화된 JSON으로 저장
 """
+import os
+os.environ['CUDA_MODULE_LOADING'] = 'LAZY'
+os.environ['NCCL_P2P_DISABLE'] = '1'
+os.environ['NCCL_IB_DISABLE'] = '1'
 
 import argparse
 from pathlib import Path
@@ -79,8 +83,8 @@ def process_single_image(
 
     print(f"✓ {len(detections)}개 표 감지됨")
 
-    # 표가 감지되었으므로 폴더 생성
-    page_output_dir = Path(output_dir) / page_name
+    # 표가 감지되었으므로 폴더 생성 (pdf_name/page_name 구조)
+    page_output_dir = Path(output_dir) / pdf_name / page_name
     page_output_dir.mkdir(parents=True, exist_ok=True)
 
     # 원본 이미지 로드
@@ -95,8 +99,11 @@ def process_single_image(
         bbox = detection["bbox"]
         confidence = detection["confidence"]
 
-        # 표 영역 크롭
+        # 표 영역 크롭 (아래쪽에 여유 마진 추가)
         x1, y1, x2, y2 = map(int, bbox)
+        img_height, img_width = original_image.shape[:2]
+        bottom_margin = 5  # 아래쪽 마진 (픽셀)
+        y2 = min(y2 + bottom_margin, img_height)  # 이미지 경계를 넘지 않도록
         table_image = original_image[y1:y2, x1:x2]
 
         # 크롭된 표 이미지 저장

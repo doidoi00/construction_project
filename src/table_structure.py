@@ -219,13 +219,28 @@ class TableStructureRecognizer:
                 "class": class_name
             }
 
-            # 클래스별로 분류
-            if "row" in class_name.lower():
-                rows.append(detection)
-            elif "column" in class_name.lower():
+            # 클래스별로 분류 (PubTables-1M 클래스 기준)
+            # 0: table (무시)
+            # 1: table column
+            # 2: table row
+            # 3: table column header (헤더 행으로 처리)
+            # 4: table projected row header (행으로 처리)
+            # 5: table spanning cell
+            label_id = int(label)
+            
+            if label_id == 1:  # table column
                 columns.append(detection)
-            elif "spanning cell" in class_name.lower():
+            elif label_id == 2:  # table row
+                rows.append(detection)
+            elif label_id == 3:  # table column header (헤더도 행으로 처리)
+                detection["is_header"] = True
+                rows.append(detection)
+            elif label_id == 4:  # table projected row header (행으로 처리)
+                detection["is_projected_header"] = True
+                rows.append(detection)
+            elif label_id == 5:  # table spanning cell
                 spanning_cells.append(detection)
+            # label_id == 0 (table)은 무시
             # 일반 셀도 추가 가능 (필요시)
 
         # 행을 Y 좌표 기준으로 정렬 (위에서 아래로)
