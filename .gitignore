@@ -84,3 +84,9 @@ notebooks/
 
 # Quick test files
 quick_test.py
+
+.python-version
+docs/colab_installation_guide.md
+pyproject.toml
+requirements.txt
+uv.lock
