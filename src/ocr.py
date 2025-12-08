@@ -1,7 +1,7 @@
 """
 OCR (Optical Character Recognition) 모듈
 
-PaddleOCR을 사용하여:
+PaddleOCR 3.x를 사용하여:
 1. 이미지에서 텍스트 추출
 2. 텍스트의 위치(좌표) 정보 함께 반환
 3. 한글 및 영어 동시 지원
@@ -21,7 +21,7 @@ class OCRProcessor:
     OCR 처리를 위한 클래스
 
     주요 기능:
-    - PaddleOCR을 사용한 텍스트 추출
+    - PaddleOCR 3.x를 사용한 텍스트 추출 (PP-OCRv5)
     - 텍스트의 바운딩 박스 좌표 반환
     - 한글/영어 동시 지원
     """
@@ -42,27 +42,30 @@ class OCRProcessor:
             gpu: GPU 사용 여부
 
         설명:
-            - PaddleOCR은 딥러닝 기반 OCR 라이브러리
-            - 첫 실행 시 언어별 모델을 자동 다운로드
-            - 한글 인식이 필요하므로 'korean' 사용
+            - PaddleOCR 3.x는 PP-OCRv5 기반
+            - 첫 실행 시 모델을 자동 다운로드
         """
         # PaddleOCR 언어 코드 변환 (ko -> korean)
         lang = self._convert_language_code(languages)
         
         print(f"OCR 모델 초기화 중 (언어: {lang})")
+        
+        # PaddleOCR 3.x 초기화
         self.reader = PaddleOCR(
-            use_angle_cls=True,  # 텍스트 방향 감지
+            use_doc_orientation_classify=False,  # 문서 방향 분류 비활성화 (속도 향상)
+            use_doc_unwarping=False,  # 문서 왜곡 보정 비활성화 (속도 향상)
+            use_textline_orientation=False,  # 텍스트 라인 방향 분류 비활성화
             lang=lang,
-            use_gpu=gpu,
+            device='gpu' if gpu else 'cpu',
             show_log=False  # 로그 출력 비활성화
         )
         print("✓ OCR 모델 준비 완료")
     
     def _convert_language_code(self, languages: List[str]) -> str:
         """
-        EasyOCR 언어 코드를 PaddleOCR 언어 코드로 변환
+        언어 코드를 PaddleOCR 언어 코드로 변환
         
-        PaddleOCR 지원 언어:
+        PaddleOCR 3.x 지원 언어:
         - 'korean': 한글
         - 'en': 영어
         - 'ch': 중국어
@@ -87,9 +90,7 @@ class OCRProcessor:
 
         Args:
             image_path: 입력 이미지 경로
-            detail: 상세 수준 (PaddleOCR에서는 항상 상세 정보 반환)
-                - 0: 텍스트만 반환 (호환성 유지)
-                - 1: 텍스트 + 좌표 + 신뢰도 반환
+            detail: 상세 수준 (호환성 유지, PaddleOCR 3.x에서는 항상 상세 정보 반환)
 
         Returns:
             List[Dict]: 추출된 텍스트 정보 리스트
@@ -103,27 +104,45 @@ class OCRProcessor:
                 }
 
         설명:
-            - reader.ocr(): PaddleOCR의 핵심 메서드
-            - 반환값: [[[box], (text, confidence)], ...]
-            - box는 4개 점의 리스트 [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+            - PaddleOCR 3.x는 predict() 메서드 사용
+            - 결과 객체에서 dt_polys, rec_texts, rec_scores 추출
         """
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"이미지를 찾을 수 없습니다: {image_path}")
 
         print(f"OCR 처리 중: {Path(image_path).name}")
-        results = self.reader.ocr(image_path, cls=True)
+        
+        # PaddleOCR 3.x predict() 호출
+        results = self.reader.predict(input=image_path)
 
         # 결과를 구조화된 형태로 변환
         text_data = []
         
-        # PaddleOCR 결과 형식: [[[box], (text, confidence)], ...]
-        # results[0]이 실제 결과 리스트
-        if results and results[0]:
-            for line in results[0]:
-                bbox = line[0]  # 4개 꼭짓점 좌표
-                text = line[1][0]  # 텍스트
-                confidence = line[1][1]  # 신뢰도
-                
+        # PaddleOCR 3.x 결과 형식 처리
+        for res in results:
+            # res['res']에서 결과 추출
+            res_data = res.get('res', res) if isinstance(res, dict) else res
+            
+            # dt_polys: 바운딩 박스 좌표들
+            # rec_texts: 인식된 텍스트들
+            # rec_scores: 신뢰도 점수들
+            if hasattr(res_data, 'rec_texts'):
+                # 객체 속성으로 접근
+                polys = res_data.dt_polys if hasattr(res_data, 'dt_polys') else res_data.rec_polys
+                texts = res_data.rec_texts
+                scores = res_data.rec_scores
+            elif isinstance(res_data, dict):
+                # 딕셔너리로 접근
+                polys = res_data.get('dt_polys', res_data.get('rec_polys', []))
+                texts = res_data.get('rec_texts', [])
+                scores = res_data.get('rec_scores', [])
+            else:
+                continue
+            
+            for i, (bbox, text, score) in enumerate(zip(polys, texts, scores)):
+                if not text:  # 빈 텍스트 건너뛰기
+                    continue
+                    
                 bbox_array = np.array(bbox)
 
                 # 중심 좌표 계산 (행/열 정렬에 사용)
@@ -136,7 +155,7 @@ class OCRProcessor:
 
                 text_info = {
                     "text": text,
-                    "confidence": float(confidence),
+                    "confidence": float(score),
                     "bbox": bbox_array.tolist(),
                     "center": [center_x, center_y],
                     "top_left": [top_left_x, top_left_y],
@@ -174,19 +193,41 @@ class OCRProcessor:
         x1, y1, x2, y2 = map(int, bbox)
         cropped = image[y1:y2, x1:x2]
 
-        # PaddleOCR은 numpy 배열 직접 입력 가능
-        results = self.reader.ocr(cropped, cls=True)
+        # PaddleOCR 3.x는 파일 경로를 필요로 하므로 임시 파일 생성
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            tmp_path = tmp.name
+            cv2.imwrite(tmp_path, cropped)
+        
+        try:
+            # PaddleOCR 3.x predict() 호출
+            results = self.reader.predict(input=tmp_path)
+        finally:
+            # 임시 파일 삭제
+            os.unlink(tmp_path)
 
         # 좌표를 원본 이미지 기준으로 변환
         text_data = []
         
-        # PaddleOCR 결과 형식: [[[box], (text, confidence)], ...]
-        if results and results[0]:
-            for line in results[0]:
-                bbox_rel = line[0]  # 4개 꼭짓점 좌표 (크롭된 이미지 기준)
-                text = line[1][0]  # 텍스트
-                confidence = line[1][1]  # 신뢰도
-                
+        # PaddleOCR 3.x 결과 형식 처리
+        for res in results:
+            res_data = res.get('res', res) if isinstance(res, dict) else res
+            
+            if hasattr(res_data, 'rec_texts'):
+                polys = res_data.dt_polys if hasattr(res_data, 'dt_polys') else res_data.rec_polys
+                texts = res_data.rec_texts
+                scores = res_data.rec_scores
+            elif isinstance(res_data, dict):
+                polys = res_data.get('dt_polys', res_data.get('rec_polys', []))
+                texts = res_data.get('rec_texts', [])
+                scores = res_data.get('rec_scores', [])
+            else:
+                continue
+            
+            for bbox_rel, text, score in zip(polys, texts, scores):
+                if not text:
+                    continue
+                    
                 # 상대 좌표를 절대 좌표로 변환
                 bbox_array = np.array(bbox_rel)
                 bbox_array[:, 0] += x1  # x 좌표 오프셋
@@ -200,7 +241,7 @@ class OCRProcessor:
 
                 text_info = {
                     "text": text,
-                    "confidence": float(confidence),
+                    "confidence": float(score),
                     "bbox": bbox_array.tolist(),
                     "center": [center_x, center_y],
                     "top_left": [top_left_x, top_left_y],
